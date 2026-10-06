@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>تسجيل الوصول</title>
+<style>
+  :root { --bg:#0f172a; --ink:#f8fafc; --muted:#94a3b8; --ok:#22c55e; --bad:#ef4444; --brand:#3b82f6; }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0; min-height: 100dvh; background: var(--bg); color: var(--ink);
+    font-family: system-ui, "Segoe UI", Tahoma, Arial, sans-serif;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+  }
+  main { width: 100%; max-width: 520px; display: flex; flex-direction: column; gap: 14px; }
+  h1 { font-size: 20px; margin: 4px 0 0; }
+  .sub { color: var(--muted); font-size: 14px; margin: 0; }
+  .stage {
+    position: relative; background: #000; border-radius: 14px; overflow: hidden;
+    aspect-ratio: 4 / 3; display: flex; align-items: center; justify-content: center;
+  }
+  canvas, video#preview { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
+  .placeholder { position: absolute; color: var(--muted); font-size: 15px; padding: 0 20px; text-align: center; }
+  .rec {
+    position: absolute; top: 10px; inset-inline-start: 10px; background: rgba(0,0,0,.6);
+    border-radius: 999px; padding: 4px 12px; font-size: 14px; display: none; align-items: center; gap: 8px;
+  }
+  .rec.on { display: flex; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--bad); animation: blink 1s infinite; }
+  @keyframes blink { 50% { opacity: .25; } }
+  .status { min-height: 24px; font-size: 15px; text-align: center; color: var(--muted); line-height: 1.6; }
+  .status.ok { color: var(--ok); }
+  .status.bad { color: var(--bad); }
+  button {
+    font: inherit; font-size: 18px; font-weight: 700; border: 0; border-radius: 14px;
+    padding: 16px; background: var(--brand); color: #fff; cursor: pointer;
+  }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.stop { background: var(--bad); }
+  button.ghost { background: transparent; border: 1px solid #475569; color: var(--muted); font-size: 15px; padding: 12px; }
+  small { color: var(--muted); text-align: center; line-height: 1.6; }
+  hr { border: 0; border-top: 1px solid #334155; width: 100%; margin: 6px 0; }
+  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .actions button { font-size: 17px; }
+  button.checkout { background: var(--ok); color: #052e16; }
+  button.sos { background: var(--bad); }
+  .hint { color: var(--muted); font-size: 13px; text-align: center; min-height: 18px; line-height: 1.5; }
+  .hint.ok { color: var(--ok); }
+  .hint.bad { color: var(--bad); }
+</style>
+</head>
+<body>
+<main>
+  <div>
+    <h1 id="name">تسجيل الوصول</h1>
+    <p class="sub">صوّر فيديو قصير للمكان وابعته على واتساب. الوقت واللوكيشن بيتسجلوا على الفيديو نفسه.</p>
+  </div>
+
+  <div class="stage">
+    <canvas id="canvas" width="640" height="480"></canvas>
+    <video id="preview" controls playsinline hidden></video>
+    <div class="placeholder" id="placeholder">اضغط "ابدأ التصوير" وسيب الكاميرا والموقع يشتغلوا</div>
+    <div class="rec" id="rec"><span class="dot"></span><span id="timer">0</span></div>
+  </div>
+
+  <div class="status" id="status"></div>
+  <button id="btn" disabled>ابدأ التصوير</button>
+  <button id="retake" class="ghost" hidden>إعادة التصوير</button>
+  <small>الكاميرا بتفتح مباشرة. بتوافق على إرسال موقعك لحظة التصوير لصاحب العمل. ابعت الفيديو فورًا بعد التصوير.</small>
+
+  <hr>
+  <div class="actions">
+    <button id="checkoutBtn" class="checkout" disabled>🏁 انصراف</button>
+    <button id="sosBtn" class="sos" disabled>🚨 طوارئ</button>
+  </div>
+  <div class="hint" id="actionHint"></div>
+</main>
+
+<video id="src" playsinline muted autoplay style="display:none"></video>
+
+<script>
+(() => {
+  // ====================== الإعدادات (عدّلها هنا فقط) ======================
+  const CONFIG = {
+    // إحداثيات مكان الشغل: افتح Google Maps، اضغط مطولًا على المكان، وانسخ الرقمين.
+    // مثال: SITE: { lat: 30.04442, lng: 31.23571, radius: 300 }
+    SITE: { lat: 30.0712502, lng: 31.21966, radius: 500 }, // radius = نصف قطر النطاق بالمتر
+    MAX_ACCURACY_M: 150, // أقصى خطأ مسموح في دقة الـ GPS (متر)
+    MAX_SEC: 20,         // أقصى مدة للفيديو (ثانية)
+    OWNER_PHONE: '',     // اختياري: رقمك بصيغة دولية من غير + (للرسائل النصية لو المشاركة مش متاحة)
+    TZ: 'Africa/Cairo',
+  };
+  // =======================================================================
+
+  const MIN_SEC = 3;
+  const $ = (id) => document.getElementById(id);
+  const btn = $('btn'), retakeBtn = $('retake'), statusEl = $('status'), canvas = $('canvas');
+  const srcVideo = $('src'), preview = $('preview'), nameEl = $('name'), recEl = $('rec');
+  const timerEl = $('timer'), placeholder = $('placeholder');
+  const checkoutBtn = $('checkoutBtn'), sosBtn = $('sosBtn'), hintEl = $('actionHint');
+  const ctx = canvas.getContext('2d');
+
+  const employee = (new URLSearchParams(location.search).get('n') || '').trim().slice(0, 40);
+  const siteOk = CONFIG.SITE.lat != null && CONFIG.SITE.lng != null;
+
+  let state = 'idle'; // idle | preparing | recording | stopping | review
+  let stream = null, recorder = null, chunks = [], fix = null, blob = null, blobUrl = '';
+  let startPerf = 0, startedAtMs = 0, stopTimer = 0, lastShownSec = -1;
+  let clockOffset = 0, clockTrusted = false;
+  let liveFix = null, checkedOut = false, checkoutBusy = false;
+
+  // ---------- أدوات ----------
+  function setStatus(msg, kind) { statusEl.textContent = msg; statusEl.className = 'status ' + (kind || ''); }
+  function setHint(msg, kind) { hintEl.textContent = msg; hintEl.className = 'hint ' + (kind || ''); }
+  const nowMs = () => Date.now() + clockOffset;
+  const fmtTime = (ms) => new Date(ms).toLocaleString('ar-EG', { timeZone: CONFIG.TZ, dateStyle: 'short', timeStyle: 'medium' });
+
+  function distM(lat1, lng1, lat2, lng2) {
+    const rad = (d) => (d * Math.PI) / 180;
+    const a = Math.sin(rad(lat2 - lat1) / 2) ** 2 +
+      Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(rad(lng2 - lng1) / 2) ** 2;
+    return 2 * 6371000 * Math.asin(Math.sqrt(a));
+  }
+
+  // الوقت بيتاخد من سيرفر الاستضافة (هيدر Date) عشان تغيير ساعة الموبايل مينفعش
+  async function syncClock() {
+    try {
+      const t0 = Date.now();
+      const r = await fetch(location.pathname + '?_=' + t0, { method: 'HEAD', cache: 'no-store' });
+      const t1 = Date.now();
+      const d = r.headers.get('Date');
+      if (!d) throw new Error('no date');
+      const age = Number(r.headers.get('Age') || 0) * 1000;
+      clockOffset = new Date(d).getTime() + age - (t0 + t1) / 2;
+      clockTrusted = true;
+    } catch {
+      clockOffset = 0;
+      clockTrusted = false;
+    }
+  }
+
+  function getPosition() {
+    return new Promise((resolve, reject) =>
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true, maximumAge: 0, timeout: 20000,
+      })
+    );
+  }
+
+  function friendlyError(e) {
+    if (e && typeof e.code === 'number' && e.code >= 1 && e.code <= 3 && !e.name) {
+      return e.code === 1
+        ? 'لازم تسمح للمتصفح بالوصول للوكيشن.'
+        : 'مش قادر أحدد موقعك. اتأكد إن الـ GPS شغال وجرّب تاني.';
+    }
+    if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) return 'لازم تسمح بالكاميرا والمايك.';
+    if (e && (e.name === 'NotFoundError' || e.name === 'OverconstrainedError')) return 'مفيش كاميرا متاحة على الجهاز.';
+    return (e && e.message) || 'حصل خطأ، جرّب تاني.';
+  }
+
+  // يتحقق إن الموظف جوه النطاق ودقة الـ GPS كويسة
+  function checkFix(c) {
+    if (!siteOk) return { ok: false, msg: 'موقع الشغل لسه مش متحدد في الصفحة.' };
+    const dist = Math.round(distM(c.latitude, c.longitude, CONFIG.SITE.lat, CONFIG.SITE.lng));
+    if (c.accuracy > CONFIG.MAX_ACCURACY_M) {
+      return { ok: false, dist, msg: `دقة اللوكيشن ضعيفة (${Math.round(c.accuracy)} متر). اطلع مكان مفتوح وجرّب تاني.` };
+    }
+    if (dist > CONFIG.SITE.radius) {
+      return { ok: false, dist, msg: `إنت برا موقع الشغل (${dist} متر).` };
+    }
+    return { ok: true, dist };
+  }
+
+  function mapUrl(lat, lng) { return `https://maps.google.com/?q=${lat},${lng}`; }
+
+  function stopStream() {
+    if (stream) stream.getTracks().forEach((t) => t.stop());
+    stream = null;
+    srcVideo.srcObject = null;
+  }
+
+  function pickMime() {
+    const list = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+    return list.find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+  }
+
+  // ---------- إرسال عبر مشاركة واتساب ----------
+  async function sendText(text) {
+    if (navigator.share) {
+      try { await navigator.share({ text }); return true; }
+      catch (e) { if (e && e.name === 'AbortError') return false; }
+    }
+    const phone = (CONFIG.OWNER_PHONE || '').replace(/\D/g, '');
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, '_blank');
+    return true;
+  }
+
+  // ---------- التصوير ----------
+  async function startRecording() {
+    try {
+      state = 'preparing';
+      btn.disabled = true;
+      setStatus('بفتح الكاميرا وبحدد موقعك...');
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 854 }, height: { ideal: 480 } },
+        audio: true,
+      });
+      srcVideo.srcObject = stream;
+      await srcVideo.play();
+
+      const c = (await getPosition()).coords;
+      const chk = checkFix(c);
+      if (!chk.ok) throw new Error(chk.msg + ' التصوير متاح وإنت جوه موقع الشغل بس.');
+      fix = { lat: c.latitude, lng: c.longitude, acc: c.accuracy, dist: chk.dist };
+
+      await syncClock();
+      beginRecording();
+    } catch (e) {
+      stopStream();
+      state = 'idle';
+      btn.disabled = false;
+      setStatus(friendlyError(e), 'bad');
+    }
+  }
+
+  function beginRecording() {
+    const w = srcVideo.videoWidth || 640, h = srcVideo.videoHeight || 480;
+    canvas.width = w - (w % 2);
+    canvas.height = h - (h % 2);
+    placeholder.hidden = true;
+
+    const out = canvas.captureStream(24);
+    stream.getAudioTracks().forEach((t) => out.addTrack(t));
+    const mime = pickMime();
+    const opts = { videoBitsPerSecond: 900000, audioBitsPerSecond: 64000 };
+    if (mime) opts.mimeType = mime;
+    recorder = new MediaRecorder(out, opts);
+    chunks = [];
+    recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    recorder.onstop = onStopped;
+
+    startPerf = performance.now();
+    startedAtMs = nowMs();
+    lastShownSec = -1;
+    recorder.start(1000);
+    state = 'recording';
+    recEl.classList.add('on');
+    btn.textContent = 'إنهاء التصوير';
+    btn.className = 'stop';
+    btn.disabled = true;
+    setStatus('صوّر المكان بوضوح...');
+    stopTimer = setTimeout(stopRecording, CONFIG.MAX_SEC * 1000);
+    draw();
+  }
+
+  // الاسم والوقت واللوكيشن بيتكتبوا جوه الفيديو نفسه
+  function draw() {
+    if (state !== 'recording') return;
+    const W = canvas.width, H = canvas.height;
+    ctx.drawImage(srcVideo, 0, 0, W, H);
+
+    const elapsed = (performance.now() - startPerf) / 1000;
+    const when = fmtTime(startedAtMs + elapsed * 1000) + (clockTrusted ? '' : '  ⚠ وقت الجهاز');
+    const coords = `${fix.lat.toFixed(5)}, ${fix.lng.toFixed(5)}  ±${Math.round(fix.acc)}m`;
+
+    const fs = Math.max(14, Math.round(W / 30));
+    const barH = Math.round(fs * 3.6);
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(0, H - barH, W, barH);
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${fs}px system-ui, Arial, sans-serif`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'top';
+    ctx.direction = 'rtl';
+    ctx.fillText(employee, W - 10, H - barH + fs * 0.25);
+    ctx.fillText(when, W - 10, H - barH + fs * 1.3);
+    ctx.direction = 'ltr';
+    ctx.fillText(coords, W - 10, H - barH + fs * 2.35);
+
+    const sec = Math.floor(elapsed);
+    if (sec !== lastShownSec) {
+      lastShownSec = sec;
+      timerEl.textContent = `${sec} / ${CONFIG.MAX_SEC}`;
+      if (sec >= MIN_SEC) btn.disabled = false;
+    }
+    requestAnimationFrame(draw);
+  }
+
+  function stopRecording() {
+    if (state !== 'recording') return;
+    state = 'stopping';
+    clearTimeout(stopTimer);
+    recEl.classList.remove('on');
+    if (recorder.state !== 'inactive') recorder.stop();
+  }
+
+  function onStopped() {
+    stopStream();
+    blob = new Blob(chunks, { type: (recorder && recorder.mimeType) || 'video/webm' });
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
+    blobUrl = URL.createObjectURL(blob);
+    preview.src = blobUrl;
+    canvas.hidden = true;
+    preview.hidden = false;
+    state = 'review';
+    btn.textContent = 'إرسال على واتساب 📤';
+    btn.className = '';
+    btn.disabled = false;
+    retakeBtn.hidden = false;
+    setStatus('اتسجّل الفيديو. اضغط إرسال واختار الجروب أو رقم صاحب العمل.', 'ok');
+  }
+
+  function retake() {
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
+    blobUrl = ''; blob = null;
+    preview.removeAttribute('src');
+    preview.hidden = true;
+    canvas.hidden = false;
+    placeholder.hidden = false;
+    retakeBtn.hidden = true;
+    state = 'idle';
+    btn.textContent = 'ابدأ التصوير';
+    btn.className = '';
+    setStatus('');
+  }
+
+  async function shareVideo() {
+    const ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
+    const stamp = new Date(startedAtMs).toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    const file = new File([blob], `arrival-${stamp}.${ext}`, { type: blob.type.split(';')[0] });
+    const text =
+      `✅ وصول: ${employee}\n🕒 ${fmtTime(startedAtMs)}\n📍 ${mapUrl(fix.lat, fix.lng)}` +
+      `\n🎯 دقة اللوكيشن: ${Math.round(fix.acc)} متر | 📏 ${fix.dist} متر من الموقع`;
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], text });
+        setStatus('اختار الجروب وابعت في واتساب ✅ (لازم الرسالة تتبعت فعلاً)', 'ok');
+      } else {
+        const a = document.createElement('a');
+        a.href = blobUrl; a.download = file.name;
+        document.body.appendChild(a); a.click(); a.remove();
+        await sendText(text);
+        setStatus('المتصفح مش بيدعم مشاركة الفيديو. الفيديو اتحمّل على جهازك — ارفقه يدويًا في المحادثة.', 'bad');
+      }
+    } catch (e) {
+      setStatus(e && e.name === 'AbortError' ? 'اتلغى الإرسال، اضغط إرسال تاني.' : 'فشلت المشاركة: ' + (e.message || ''), 'bad');
+    }
+  }
+
+  btn.addEventListener('click', () => {
+    if (state === 'idle') startRecording();
+    else if (state === 'recording') stopRecording();
+    else if (state === 'review') shareVideo();
+  });
+  retakeBtn.addEventListener('click', retake);
+
+  // ---------- الانصراف (جوه الموقع بس) ----------
+  function refreshCheckout() {
+    if (checkedOut || checkoutBusy) { checkoutBtn.disabled = true; return; }
+    if (!siteOk) { checkoutBtn.disabled = true; setHint('موقع الشغل لسه مش متحدد، الانصراف غير متاح.', 'bad'); return; }
+    if (!liveFix) { checkoutBtn.disabled = true; setHint('بحدد موقعك... لازم تفعّل اللوكيشن عشان تنصرف.'); return; }
+    const chk = checkFix(liveFix);
+    checkoutBtn.disabled = !chk.ok;
+    if (chk.ok) setHint('إنت جوه موقع الشغل ✅ تقدر تنصرف.', 'ok');
+    else setHint(chk.msg + (chk.dist > CONFIG.SITE.radius ? ' الانصراف متاح وإنت جوه الموقع بس.' : ''), 'bad');
+  }
+
+  function watchLocation() {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.watchPosition(
+      (p) => { liveFix = p.coords; refreshCheckout(); },
+      (e) => {
+        liveFix = null;
+        checkoutBtn.disabled = true;
+        setHint(e.code === 1 ? 'فعّل اللوكيشن عشان تقدر تنصرف.' : 'مش قادر أحدد موقعك، اتأكد إن الـ GPS شغال.', 'bad');
+      },
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }
+    );
+  }
+
+  checkoutBtn.addEventListener('click', async () => {
+    if (!confirm('تأكيد تسجيل الانصراف؟')) return;
+    checkoutBusy = true;
+    checkoutBtn.disabled = true;
+    setHint('بتأكد من موقعك...');
+    try {
+      const c = (await getPosition()).coords; // لوكيشن جديد لحظة الضغط
+      const chk = checkFix(c);
+      if (!chk.ok) throw new Error(chk.msg + ' الانصراف متاح وإنت جوه الموقع بس.');
+      await syncClock();
+      const t = nowMs();
+      const text =
+        `🏁 انصراف: ${employee}\n🕒 ${fmtTime(t)}${clockTrusted ? '' : ' (وقت الجهاز ⚠)'}\n📍 ${mapUrl(c.latitude, c.longitude)}` +
+        `\n🎯 دقة اللوكيشن: ${Math.round(c.accuracy)} متر | 📏 ${chk.dist} متر من الموقع`;
+      const sent = await sendText(text);
+      if (!sent) throw new Error('اتلغى الإرسال. اضغط انصراف تاني وابعت الرسالة.');
+      checkedOut = true;
+      checkoutBtn.textContent = 'تم الانصراف ✅';
+      setHint('اتبعت الانصراف ' + fmtTime(t) + ' — اتأكد إن الرسالة اتبعتت في واتساب.', 'ok');
+    } catch (e) {
+      setHint(friendlyError(e), 'bad');
+      setTimeout(refreshCheckout, 4000);
+    } finally {
+      checkoutBusy = false;
+    }
+  });
+
+  // ---------- الطوارئ (من أي مكان) ----------
+  sosBtn.addEventListener('click', async () => {
+    if (!confirm('هتبعت تنبيه طوارئ لصاحب العمل دلوقتي. متأكد؟')) return;
+    sosBtn.disabled = true;
+    setHint('بجهّز تنبيه الطوارئ...');
+    let c = null;
+    try {
+      c = (await Promise.race([
+        getPosition(),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000)),
+      ])).coords;
+    } catch {
+      c = liveFix; // آخر لوكيشن معروف لو الجديد اتأخر
+    }
+    await syncClock();
+    let text = `🚨🚨 طوارئ 🚨🚨\n👤 ${employee}\n🕒 ${fmtTime(nowMs())}`;
+    if (c) {
+      text += `\n📍 ${mapUrl(c.latitude, c.longitude)}\n🎯 دقة اللوكيشن: ${Math.round(c.accuracy)} متر`;
+      if (siteOk) text += `\n📏 ${Math.round(distM(c.latitude, c.longitude, CONFIG.SITE.lat, CONFIG.SITE.lng))} متر من الموقع`;
+    } else {
+      text += '\n📍 اللوكيشن غير متاح — اتصل بالموظف فورًا.';
+    }
+    const sent = await sendText(text);
+    setHint(sent ? 'اضغط إرسال في واتساب عشان التنبيه يوصل 🚨 واتصل بصاحب العمل كمان.' : 'اتلغى الإرسال! اضغط طوارئ تاني.', sent ? 'ok' : 'bad');
+    setTimeout(() => { sosBtn.disabled = false; }, 5000);
+  });
+
+  // ---------- تهيئة الصفحة ----------
+  (function init() {
+    if (!employee) {
+      setStatus('الرابط ناقص الاسم. اطلب رابطك الخاص من صاحب العمل.', 'bad');
+      return;
+    }
+    nameEl.textContent = 'أهلاً ' + employee;
+    sosBtn.disabled = false;
+
+    const insecure = !window.isSecureContext && location.hostname !== 'localhost';
+    if (insecure || !navigator.mediaDevices || !window.MediaRecorder || !navigator.geolocation) {
+      setStatus(insecure ? 'الصفحة لازم تتفتح بـ https.' : 'المتصفح ده مش مدعوم. استخدم Chrome أو Safari حديث.', 'bad');
+      return;
+    }
+    if (!siteOk) setStatus('موقع الشغل لسه مش متحدد في الصفحة، التصوير والانصراف غير متاحين.', 'bad');
+    else btn.disabled = false;
+
+    syncClock();
+    watchLocation();
+    refreshCheckout();
+  })();
+})();
+</script>
+</body>
+</html>
