@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hydeout Attendance</title>
+<style>
+*{box-sizing:border-box}
+:root{--primary:#163d36;--primary2:#24574d;--gold:#b8923a;--bg:#f5f3ef;--card:#ffffff;--line:#e8e4dc;--field:#d8d3c7;--ink:#1f2623;--muted:#7b7f78;--red:#b5473e}
+body{margin:0;font-family:"Segoe UI",Tahoma,Arial,sans-serif;background:var(--bg);color:var(--ink);font-size:15px;line-height:1.5}
+header{background:linear-gradient(135deg,var(--primary),var(--primary2));color:#fff;padding:18px 16px;text-align:center;font-size:18px;font-weight:700;letter-spacing:.4px;border-bottom:2px solid var(--gold)}
+nav{display:flex;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5;overflow-x:auto;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+nav button{flex:1 0 auto;padding:13px 10px;border:0;background:none;font-size:14px;color:var(--muted);font-family:inherit;cursor:pointer}
+nav button.on{color:var(--primary);font-weight:700;box-shadow:inset 0 -3px 0 var(--gold)}
+main{padding:14px;max-width:560px;margin:auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 16px;margin-bottom:12px;box-shadow:0 1px 2px rgba(20,30,25,.04)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+input,select{width:100%;padding:11px 12px;border:1px solid var(--field);border-radius:10px;font-size:15px;margin:4px 0 8px;background:#fff;font-family:inherit;color:var(--ink)}
+input:focus,select:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(184,146,58,.18)}
+label{display:block;font-size:13px;color:var(--muted);font-weight:600;margin-top:6px}
+.btn{background:var(--primary);color:#fff;border:0;border-radius:10px;padding:11px 14px;font-size:15px;width:100%;margin-top:6px;font-family:inherit;font-weight:600;cursor:pointer}
+.btn:active{opacity:.85}
+.btn2{background:#fff;color:var(--primary);border:1px solid var(--field)}
+.btnred{background:#fff;color:var(--red);border:1px solid #ebc4bf}
+.st{flex:1;padding:9px 2px;border:1px solid var(--field);border-radius:10px;background:#fff;color:#4a4f49;font-size:13px;font-family:inherit;font-weight:600;cursor:pointer}
+.muted{color:var(--muted);font-size:13px}
+.small{width:auto;padding:6px 12px;margin:0;font-size:13px}
+table{width:100%;border-collapse:collapse;font-size:13px;text-align:center}
+th{background:#f3efe6;padding:8px 2px;color:var(--muted);font-weight:700}
+td{border-top:1px solid var(--line);padding:8px 2px}
+.fold{margin-bottom:12px}
+.fold>summary{list-style:none;cursor:pointer;background:var(--card);color:var(--primary);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-weight:700;display:flex;justify-content:space-between;align-items:center;box-shadow:0 1px 2px rgba(20,30,25,.04)}
+.fold>summary::-webkit-details-marker{display:none}
+.fold>summary::after{content:"+";color:var(--gold);font-size:20px;font-weight:700;line-height:1}
+.fold[open]>summary::after{content:"−"}
+.fold[open]>summary{border-color:var(--gold)}
+.fold>.card{margin-top:8px}
+.wm{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;pointer-events:none;z-index:0;opacity:.07;font-size:64px;font-weight:700;line-height:1.3;color:var(--gold)}
+main{position:relative;z-index:1}
+.credit{text-align:center;color:var(--muted);font-size:12px;padding:18px 0 28px;position:relative;z-index:1}
+</style>
+</head>
+<body>
+<div class="wm">مختار<br>Valet Parking</div>
+<div id="lock" style="position:fixed;inset:0;background:linear-gradient(160deg,#1f4d45,#153830);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99;color:#f3e3b5">
+  <h2 style="margin:0 0 16px">Hydeout Attendance</h2>
+  <input id="pin" type="password" inputmode="numeric" placeholder="الرقم السري" onkeydown="if(event.key==='Enter')unlock()" style="width:200px;text-align:center;font-size:20px;padding:10px;border-radius:12px;border:0">
+  <button onclick="unlock()" style="margin-top:12px;padding:10px 30px;border:0;border-radius:12px;background:#c9a24a;color:#1f2d2a;font-size:16px">دخول</button>
+  <div id="perr" style="color:#f6a;margin-top:8px;min-height:20px"></div>
+</div>
+<header>Hydeout Attendance</header>
+<nav>
+  <button data-t="today" class="on" onclick="go('today')">اليوم</button>
+  <button data-t="month" onclick="go('month')">الشهر</button>
+  <button data-t="emps" onclick="go('emps')">الموظفين</button>
+  <button data-t="rules" onclick="go('rules')">القواعد</button>
+  <button data-t="settings" onclick="go('settings')">الإعدادات</button>
+</nav>
+<main id="app"></main>
+
+<script>
+const KEY = "hydeout_attendance_v2";
+const STATUS = ["حاضر","متأخر","غايب","إجازة"];
+const NTYPES = ["خصم","إجازة","تحذير"];
+const SCOL = {"حاضر":"#2e7d5b","متأخر":"#d68a1e","غايب":"#b8473f","إجازة":"#3b6ea5"};
+const today = () => new Date().toLocaleDateString("sv");
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const money = n => Number(n || 0).toLocaleString("en-US") + " ج";
+const val = id => document.getElementById(id).value;
+
+function seed(){ return {nextId: 1, employees: [], att: {}, rules: [], pin: "500500"}; }
+let db = JSON.parse(localStorage.getItem(KEY) || "null") || seed();
+db.att ||= {}; db.rules ||= []; db.pin ||= "500500"; db.employees ||= [];
+
+let S = {tab:"today", date:today(), month:today().slice(0,7), emp:null, editNote:null};
+
+function save(){ localStorage.setItem(KEY, JSON.stringify(db)); }
+function go(t){ S.tab = t; S.emp = null; S.editNote = null; if(t === "today") S.date = today(); render(); }
+
+function unlock(){
+  if(val("pin") === db.pin){ document.getElementById("lock").style.display = "none"; }
+  else { document.getElementById("perr").textContent = "الرقم السري غلط"; document.getElementById("pin").value = ""; }
+}
+
+/* ---------- attendance helpers ---------- */
+function stOf(e, d){ const v = (db.att[d] || {})[e.id]; return !v ? "" : (typeof v === "string" ? v : v.s); }
+function minOf(e, d){ const v = (db.att[d] || {})[e.id]; return (!v || typeof v === "string") ? 0 : (v.m || 0); }
+function monthDays(){ return Object.keys(db.att).filter(d => d.startsWith(S.month)); }
+function cnt(e, st){ return monthDays().filter(d => stOf(e, d) === st).length; }
+function lateMin(e){ return monthDays().reduce((a, d) => a + (stOf(e, d) === "متأخر" ? minOf(e, d) : 0), 0); }
+function leaveUsed(e){ const y = S.month.slice(0,4); return Object.keys(db.att).filter(d => d.startsWith(y) && stOf(e, d) === "إجازة").length; }
+function leaveLeft(e){ return (e.leaveDays === undefined || e.leaveDays === null || e.leaveDays === "") ? null : Number(e.leaveDays) - leaveUsed(e); }
+
+function setAtt(id, s){
+  let m = 0;
+  if(s === "متأخر"){
+    const r = prompt("عدد دقايق التأخير؟", "0");
+    if(r === null) return;
+    m = Number(r) || 0;
+  }
+  db.att[S.date] = db.att[S.date] || {};
+  db.att[S.date][id] = {s, m};
+  save(); render();
+}
+
+/* ---------- money helpers ---------- */
+function monthNotes(e){ return e.notes.filter(n => n.date.startsWith(S.month)); }
+function deductions(e){ return monthNotes(e).filter(n => n.type === "خصم").reduce((a, n) => a + Number(n.amount || 0), 0); }
+function net(e){ return Number(e.salary || 0) - deductions(e); }
+
+/* ---------- views ---------- */
+function todayView(){
+  let h = "";
+  const alerts = db.employees.filter(e => cnt(e,"متأخر") + cnt(e,"غايب") >= 3);
+  if(alerts.length) h += `<div class="card" style="border-right:4px solid #b8473f">⚠️ ${alerts.map(e => esc(e.name)).join("، ")} عندهم 3 تأخيرات أو غيابات أو أكتر هذا الشهر</div>`;
+  if(!db.employees.length) return h + `<div class="card">ما فيش موظفين، أضفهم من تبويب الموظفين.</div>`;
+  h += `<div class="card"><label>التاريخ</label>
+        <input type="date" value="${S.date}" onchange="S.date=this.value;render()"></div>`;
+  h += db.employees.map(e => {
+    const cur = stOf(e, S.date);
+    const late = cur === "متأخر" ? ` (${minOf(e, S.date)} د)` : "";
+    return `<div class="card">
+      <div class="row" style="justify-content:space-between"><b>${esc(e.name)}</b>
+        <button class="btn btn2 small" onclick="S.emp=${e.id};render()">عرض</button></div>
+      <div class="row" style="margin-top:8px">
+        ${STATUS.map(s => `<button class="st" style="${cur===s?'background:'+SCOL[s]+';color:#fff;border-color:'+SCOL[s]:''}" onclick="setAtt(${e.id},'${s}')">${s}${cur===s&&s==='متأخر'?late:''}</button>`).join("")}
+      </div></div>`;
+  }).join("");
+  return h;
+}
+
+function monthView(){
+  let h = `<div class="card"><label>الشهر</label>
+    <input type="month" value="${S.month}" onchange="S.month=this.value;render()"></div>`;
+  h += `<div class="card" style="overflow-x:auto"><table>
+    <tr><th>الموظف</th><th>حضور</th><th>متأخر</th><th>د</th><th>غياب</th><th>إجازة</th><th>خصم</th><th>الصافي</th></tr>`;
+  db.employees.forEach(e => {
+    h += `<tr><td style="text-align:right">${esc(e.name)}</td>
+      <td>${cnt(e,"حاضر")}</td><td>${cnt(e,"متأخر")}</td><td>${lateMin(e)}</td><td>${cnt(e,"غايب")}</td><td>${cnt(e,"إجازة")}</td>
+      <td>${money(deductions(e))}</td><td><b>${money(net(e))}</b></td></tr>`;
+  });
+  h += `</table></div>
+    <button class="btn" onclick="exportCSV()">تصدير الشهر (Excel)</button>`;
+  return h;
+}
+
+function empsView(){
+  let h = `<details class="fold"><summary>➕ إضافة موظف</summary>
+    <div class="card">
+    <label>الاسم</label><input id="nn" placeholder="اسم الموظف">
+    <label>الراتب الأساسي</label><input id="ns" type="number" inputmode="numeric" placeholder="مثال: 10000">
+    <label>رصيد الإجازات السنوية (أيام)</label><input id="nl" type="number" inputmode="numeric" placeholder="مثال: 21">
+    <label>رقم واتساب (للكشف)</label><input id="nph" type="tel" inputmode="tel" placeholder="01xxxxxxxxx">
+    <button class="btn" onclick="addEmp()">إضافة</button></div></details>`;
+  h += db.employees.map(e => `<div class="card" style="cursor:pointer" onclick="S.emp=${e.id};render()">
+    <b>${esc(e.name)}</b>
+    <div class="muted">الراتب: ${money(e.salary)} · صافي ${S.month}: <b>${money(net(e))}</b></div></div>`).join("");
+  return h;
+}
+
+function addEmp(){
+  const name = val("nn").trim(), salary = Number(val("ns")), leave = val("nl");
+  if(!name || !salary) return alert("اكتب الاسم والراتب");
+  db.employees.push({id: db.nextId++, name, salary, phone: val("nph").trim(), leaveDays: leave === "" ? null : Number(leave), notes: []});
+  save(); render();
+}
+
+function saveEmp(id){
+  const e = db.employees.find(x => x.id === id);
+  const name = val("en").trim(), salary = Number(val("es")), leave = val("el");
+  if(!name || !salary) return alert("اكتب الاسم والراتب");
+  Object.assign(e, {name, salary, leaveDays: leave === "" ? null : Number(leave), phone: val("eph").trim()});
+  save(); render();
+}
+
+function delEmp(id){
+  const e = db.employees.find(x => x.id === id);
+  if(!e || !confirm("تحذف " + e.name + " وكل بياناته؟")) return;
+  db.employees = db.employees.filter(x => x.id !== id);
+  Object.values(db.att).forEach(day => delete day[id]);
+  S.emp = null; save(); render();
+}
+
+function empView(e){
+  const editing = S.editNote ? e.notes.find(n => n.id === S.editNote) : null;
+  const notes = [...e.notes].sort((a,b) => b.date.localeCompare(a.date));
+  const left = leaveLeft(e);
+  return `<div class="row" style="margin-bottom:10px">
+      <button class="btn btn2" style="flex:1" onclick="S.emp=null;S.editNote=null;render()">← رجوع</button>
+      <button class="btn btnred" style="flex:1" onclick="delEmp(${e.id})">حذف الموظف</button></div>
+
+  <div class="card"><b style="font-size:18px">${esc(e.name)}</b>
+    <div>الراتب الأساسي: ${money(e.salary)}</div>
+    <div>خصومات ${S.month}: ${money(deductions(e))}</div>
+    <div>دقايق تأخير ${S.month}: ${lateMin(e)} د</div>
+    <div>رصيد الإجازات المتبقي: ${left === null ? "غير محدد" : left + " يوم"}</div>
+    <div><b>الصافي: ${money(net(e))}</b></div></div>
+
+  <button class="btn" onclick="sendStatement(${e.id})">إرسال الكشف على واتساب</button>
+
+  <details class="fold" ${editing ? "open" : ""}>
+    <summary>${editing ? "✏️ تعديل ملاحظة" : "📝 ملاحظة جديدة"}</summary>
+    <div class="card">
+      <label>قاعدة محفوظة (اختياري)</label>
+      <select onchange="applyRule(this.value)"><option value="">— بدون قاعدة —</option>
+        ${db.rules.map(r => `<option value="${r.id}">${esc(r.name)} (${money(r.amount)})</option>`).join("")}</select>
+      <label>النوع</label>
+      <select id="nt">${NTYPES.map(t => `<option ${(editing ? editing.type : "خصم") === t ? "selected" : ""}>${t}</option>`).join("")}</select>
+      <label>التاريخ</label>
+      <input id="nd" type="date" value="${editing ? editing.date : S.date}">
+      <label>المبلغ (للخصم)</label>
+      <input id="na" type="number" inputmode="numeric" placeholder="مثال: 500" value="${editing && editing.amount ? editing.amount : ''}">
+      <label>السبب</label>
+      <input id="nr" placeholder="اكتب السبب" value="${editing ? esc(editing.reason) : ''}">
+      <button class="btn" onclick="saveNote(${e.id})">${editing ? "حفظ التعديل" : "حفظ الملاحظة"}</button>
+      ${editing ? `<button class="btn btn2" onclick="S.editNote=null;render()">إلغاء</button>` : ""}
+    </div>
+  </details>
+
+  <details class="fold" ${editing ? "open" : ""}>
+    <summary>📋 الملاحظات (${notes.length})</summary>
+    ${notes.map(n => `<div class="card">
+      <div class="row" style="justify-content:space-between"><b>${n.type}</b><span class="muted">${n.date}</span></div>
+      ${n.type === "خصم" ? `<div style="color:#b8473f">- ${money(n.amount)}</div>` : ""}
+      <div>${esc(n.reason)}</div>
+      <div class="row" style="margin-top:6px">
+        <button class="btn btn2 small" onclick="S.editNote=${n.id};render()">تعديل</button>
+        <button class="btn btnred small" onclick="delNote(${e.id},${n.id})">حذف</button></div>
+    </div>`).join("") || `<div class="card muted">ما فيش ملاحظات بعد.</div>`}
+  </details>
+
+  <details class="fold">
+    <summary>✏️ تعديل بيانات الموظف</summary>
+    <div class="card">
+      <label>الاسم</label><input id="en" value="${esc(e.name)}">
+      <label>الراتب</label><input id="es" type="number" inputmode="numeric" value="${e.salary}">
+      <label>رقم واتساب (للكشف)</label><input id="eph" type="tel" inputmode="tel" value="${esc(e.phone || '')}">
+      <label>رصيد الإجازات (أيام)</label><input id="el" type="number" inputmode="numeric" value="${e.leaveDays ?? ''}">
+      <button class="btn" onclick="saveEmp(${e.id})">حفظ التعديل</button>
+    </div>
+  </details>`;
+}
+
+function statementText(e){
+  const notes = monthNotes(e);
+  const lines = [
+    `كشف حضور: ${e.name}`,
+    `شهر ${S.month}`,
+    ``,
+    `الراتب الأساسي: ${money(e.salary)}`,
+    `أيام الحضور: ${cnt(e,"حاضر")}`,
+    `التأخير: ${cnt(e,"متأخر")} مرة (${lateMin(e)} دقيقة)`,
+    `الغياب: ${cnt(e,"غايب")} يوم`,
+    `الإجازات: ${cnt(e,"إجازة")} يوم`
+  ];
+  const left = leaveLeft(e);
+  if(left !== null) lines.push(`رصيد الإجازات المتبقي: ${left} يوم`);
+  const ded = notes.filter(n => n.type === "خصم");
+  const warn = notes.filter(n => n.type === "تحذير");
+  if(ded.length){
+    lines.push("", "الخصومات:");
+    ded.forEach(n => lines.push(`- ${n.date}: ${n.reason || "بدون سبب"} (${money(n.amount)})`));
+    lines.push(`إجمالي الخصم: ${money(deductions(e))}`);
+  }
+  if(warn.length){
+    lines.push("", "التحذيرات:");
+    warn.forEach(n => lines.push(`- ${n.date}: ${n.reason || "تحذير"}`));
+  }
+  lines.push("", `*الصافي: ${money(net(e))}*`);
+  return lines.join("\n");
+}
+
+function sendStatement(id){
+  const e = db.employees.find(x => x.id === id);
+  let phone = (e.phone || "").replace(/\D/g, "");
+  if(phone.startsWith("0")) phone = "20" + phone.slice(1);
+  window.open("https://wa.me/" + phone + "?text=" + encodeURIComponent(statementText(e)), "_blank");
+}
+
+function applyRule(rid){
+  if(!rid) return;
+  const r = db.rules.find(x => String(x.id) === String(rid));
+  if(!r) return;
+  document.getElementById("nt").value = r.type;
+  document.getElementById("na").value = r.amount || "";
+  document.getElementById("nr").value = r.name;
+}
+
+function saveNote(eid){
+  const e = db.employees.find(x => x.id === eid);
+  const type = val("nt"), date = val("nd"), amount = Number(val("na") || 0), reason = val("nr").trim();
+  if(!date) return alert("اختار التاريخ");
+  if(type === "خصم" && !amount) return alert("اكتب مبلغ الخصم");
+  const data = {date, type, amount: type === "خصم" ? amount : 0, reason};
+  if(S.editNote){
+    Object.assign(e.notes.find(n => n.id === S.editNote), data);
+    S.editNote = null;
+  } else {
+    e.notes.push({id: Date.now(), ...data});
+  }
+  save(); render();
+}
+
+function delNote(eid, nid){
+  if(!confirm("تحذف الملاحظة؟")) return;
+  const e = db.employees.find(x => x.id === eid);
+  e.notes = e.notes.filter(n => n.id !== nid);
+  if(S.editNote === nid) S.editNote = null;
+  save(); render();
+}
+
+function rulesView(){
+  let h = `<details class="fold"><summary>➕ قاعدة جديدة</summary>
+    <div class="card">
+    <label>اسم القاعدة</label><input id="rn" placeholder="مثال: تأخير أكتر من 15 دقيقة">
+    <label>النوع</label><select id="rt">${NTYPES.map(t => `<option>${t}</option>`).join("")}</select>
+    <label>المبلغ</label><input id="ra" type="number" inputmode="numeric" placeholder="مثال: 50">
+    <button class="btn" onclick="addRule()">حفظ القاعدة</button></div></details>`;
+  h += db.rules.length ? "" : `<div class="card muted">ما فيش قواعد محفوظة بعد.</div>`;
+  h += db.rules.map(r => `<div class="card row" style="justify-content:space-between">
+    <div><b>${esc(r.name)}</b><div class="muted">${r.type} · ${money(r.amount)}</div></div>
+    <button class="btn btnred small" onclick="delRule(${r.id})">حذف</button></div>`).join("");
+  return h;
+}
+
+function addRule(){
+  const name = val("rn").trim(), type = val("rt"), amount = Number(val("ra") || 0);
+  if(!name) return alert("اكتب اسم القاعدة");
+  db.rules.push({id: Date.now(), name, type, amount});
+  save(); render();
+}
+
+function delRule(id){
+  if(!confirm("تحذف القاعدة؟ الملاحظات اللي اتسجلت بيها هتفضل زي ما هي.")) return;
+  db.rules = db.rules.filter(r => r.id !== id);
+  save(); render();
+}
+
+function settingsView(){
+  return `<details class="fold"><summary>💾 حفظ نسخة احتياطية</summary>
+    <div class="card"><div class="muted">البيانات محفوظة على الموبايل ده بس. احفظ نسخة كل أسبوع أو كل شهر.</div>
+    <button class="btn" onclick="backup()">حفظ نسخة</button></div></details>
+
+  <details class="fold"><summary>📂 استرجاع نسخة</summary>
+    <div class="card"><input type="file" accept=".json,application/json" onchange="restore(this)"></div></details>
+
+  <details class="fold"><summary>🔒 تغيير الرقم السري</summary>
+    <div class="card">
+    <label>الرقم الجديد</label><input id="np" type="password" inputmode="numeric">
+    <label>أكد الرقم</label><input id="np2" type="password" inputmode="numeric">
+    <button class="btn" onclick="changePin()">حفظ الرقم</button></div></details>`;
+}
+
+function backup(){
+  download("hydeout-backup-" + today() + ".json", JSON.stringify(db), "application/json");
+}
+
+function restore(input){
+  const f = input.files[0];
+  if(!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const obj = JSON.parse(reader.result);
+      if(!confirm("هيتم استبدال كل البيانات الحالية بالنسخة دي. متأكد؟")) return;
+      db = obj; db.att ||= {}; db.rules ||= []; db.pin ||= "500500"; db.employees ||= [];
+      save(); render(); alert("تم الاسترجاع");
+    }catch(err){ alert("الملف ده مش نسخة صحيحة"); }
+  };
+  reader.readAsText(f);
+}
+
+function changePin(){
+  const a = val("np"), b = val("np2");
+  if(!a || a !== b) return alert("الرقمين مش متطابقين");
+  db.pin = a; save(); alert("تم تغيير الرقم السري");
+  document.getElementById("np").value = ""; document.getElementById("np2").value = "";
+}
+
+function exportCSV(){
+  const rows = [["الموظف","الراتب","حضور","تأخير (مرات)","دقايق التأخير","غياب","إجازة","الخصم","الصافي","رصيد الإجازات"]];
+  db.employees.forEach(e => rows.push([e.name, e.salary, cnt(e,"حاضر"), cnt(e,"متأخر"), lateMin(e), cnt(e,"غايب"), cnt(e,"إجازة"), deductions(e), net(e), leaveLeft(e) ?? ""]));
+  const csv = "\uFEFF" + rows.map(r => r.map(v => `"${String(v ?? "").replace(/"/g,'""')}"`).join(",")).join("\n");
+  download("attendance-" + S.month + ".csv", csv, "text/csv;charset=utf-8");
+}
+
+function download(name, data, type){
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([data], {type}));
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+/* ---------- render ---------- */
+function render(){
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.t === S.tab));
+  const app = document.getElementById("app");
+  if(S.emp){
+    const e = db.employees.find(x => x.id === S.emp);
+    if(e){ app.innerHTML = empView(e); return; }
+    S.emp = null;
+  }
+  const views = {today: todayView, month: monthView, emps: empsView, rules: rulesView, settings: settingsView};
+  app.innerHTML = views[S.tab]();
+}
+
+save();
+render();
+</script>
+<footer class="credit">by: rashad mokhtar</footer>
+</body>
+</html>
