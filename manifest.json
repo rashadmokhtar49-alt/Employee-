@@ -1,8 +1,9 @@
 {
+  "id": "/Employee-/hydeout-attendance-admin",
   "name": "Hydeout Attendance",
   "short_name": "Hydeout",
-  "start_url": "./admin.html",
-  "scope": "./",
+  "start_url": "/Employee-/admin.html",
+  "scope": "/Employee-/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#f5f3ef",
